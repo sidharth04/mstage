@@ -19,7 +19,7 @@ provider "azurerm" {
     storage_account_name = "mystsidtestqsoct5"
     container_name       = "tftstate" # this is overridden on command line in QA, PREPROD & PROD
     key                  = "terraformmultistage.tfstate"
-    use_azuread_auth     = true # This flag makes TF use AD auth (RBAC) to access backend storage.
+    use_azuread_auth     = false # This flag makes TF use AD auth (RBAC) to access backend storage.
   }
 
 
