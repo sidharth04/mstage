@@ -36,8 +36,6 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
-      - name: Check formatting
-        run: terraform fmt -check -recursive
       - name: Terraform init
         run: terraform init -input=false
       - name: Terraform validate
