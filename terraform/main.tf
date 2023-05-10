@@ -5,14 +5,6 @@ terraform {
       version = "3.55.0"
     }
   }
-}
-
-provider "azurerm" {
-  features {
-    
-  }
-}
-  # "Backend" is used to save the state to Azure Blob in order to avoid developing conflicts. 
   backend "azurerm" {
     subscription_id      = "5a0855b9-426d-429e-83a9-ea7c4796e9a4"
     resource_group_name  = "rgstsidtest"
@@ -21,6 +13,14 @@ provider "azurerm" {
     key                  = "terraformmultistage.tfstate"
     #use_azuread_auth     = false # This flag makes TF use AD auth (RBAC) to access backend storage.
   }
+}
+
+provider "azurerm" {
+  features {
+    
+  }
+}
+  # "Backend" is used to save the state to Azure Blob in order to avoid developing conflicts. 
 
 
 module "resource_groups" {
