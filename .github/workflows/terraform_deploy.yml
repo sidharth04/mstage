@@ -1,0 +1,311 @@
+name: terraform deploy main
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+  workflow_dispatch:
+
+env:
+  TF_IN_AUTOMATION: true
+  TF_VERSION: 1.1.7
+  ARM_TENANT_ID: b4379ba6-6d53-47fe-b814-910057a92b2b
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  plan_dev:
+    runs-on: [self-hosted, linux, x64, azure-mfo-build]
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZ_SP_USERNAME }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZ_SP_PASSWORD }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZ_SP_SUBSCRIPTION }}
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hashicorp/setup-terraform@v1  
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Check formatting
+        run: terraform fmt -check -recursive
+      - name: Terraform init
+        run: terraform init -input=false
+      - name: Terraform validate
+        run: terraform validate
+      - name: Terraform plan
+        id: plan
+        run: terraform plan -input=false -var="ENVIRONMENT_TYPE=dev" -no-color 2>&1 | tee ${GITHUB_WORKSPACE}/plan_out.txt
+        continue-on-error: true
+      - name: Update Pull Request
+        uses: actions/github-script@v5
+        if: github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const run_url = process.env.GITHUB_SERVER_URL + '/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + process.env.GITHUB_RUN_ID
+            const run_link = '<a href="' + run_url + '">Actions</a>.'
+            const fs = require('fs')
+            const plan_output = fs.readFileSync('plan_out.txt', 'utf8')
+            const plan_details = plan_output.length > 65000 ? plan_output.toString().slice(-65000) : plan_output
+            const truncated_message = plan_output.length > 65000 ? "Output is too long and beginning was omitted. You can read full Plan in " + run_link + "<br /><br />" : ""
+            const output = `#### Main Terraform Plan \`${{ steps.plan.outcome }}\`
+            <details><summary>Show Plan</summary>
+            \`\`\`\n
+            ${plan_details}
+            \`\`\`
+            </details>
+            ${truncated_message}
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+  deploy-dev:
+    runs-on: [self-hosted, linux, x64, azure-mfo-dev]
+    needs: [plan_dev]
+    if: ${{ github.ref == 'refs/heads/main' }}
+    environment: dev
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZ_SP_USERNAME }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZ_SP_PASSWORD }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZ_SP_SUBSCRIPTION }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hashicorp/setup-terraform@v1  
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: Terraform init
+        run: terraform init -input=false -backend-config="container_name=coretfstatedev"
+      - name: Terraform apply
+        run: terraform apply -auto-approve -input=false -var="ENVIRONMENT_TYPE=dev"
+  plan_qa:
+    runs-on: [self-hosted, linux, x64, azure-mfo-dev]
+    
+    environment: qa
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZ_SP_USERNAME }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZ_SP_PASSWORD }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZ_SP_SUBSCRIPTION }}
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hashicorp/setup-terraform@v1  
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Check formatting
+        run: terraform fmt -check -recursive
+      - name: Terraform init
+        run: terraform init -input=false -backend-config="container_name=coretfstateqa"
+      - name: Terraform validate
+        run: terraform validate
+      - name: Terraform plan
+        id: plan
+        run: terraform plan -input=false -var="ENVIRONMENT_TYPE=qa" -no-color 2>&1 | tee ${GITHUB_WORKSPACE}/plan_out.txt
+        continue-on-error: true
+      - name: Update Pull Request
+        uses: actions/github-script@v5
+        if: github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const run_url = process.env.GITHUB_SERVER_URL + '/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + process.env.GITHUB_RUN_ID
+            const run_link = '<a href="' + run_url + '">Actions</a>.'
+            const fs = require('fs')
+            const plan_output = fs.readFileSync('plan_out.txt', 'utf8')
+            const plan_details = plan_output.length > 65000 ? plan_output.toString().slice(-65000) : plan_output
+            const truncated_message = plan_output.length > 65000 ? "Output is too long and beginning was omitted. You can read full Plan in " + run_link + "<br /><br />" : ""
+            const output = `#### Main Terraform Plan \`${{ steps.plan.outcome }}\`
+            <details><summary>Show Plan</summary>
+            \`\`\`\n
+            ${plan_details}
+            \`\`\`
+            </details>
+            ${truncated_message}
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+  deploy-qa:
+    runs-on: [self-hosted, linux, x64, azure-mfo-dev]
+    needs: [plan_qa]
+    if: ${{ github.ref == 'refs/heads/main' }}
+    environment: qa
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZ_SP_USERNAME }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZ_SP_PASSWORD }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZ_SP_SUBSCRIPTION }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hashicorp/setup-terraform@v1  
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: Terraform init
+        run: terraform init -input=false -backend-config="container_name=coretfstateqa"
+      - name: Terraform apply
+        run: terraform apply -auto-approve -input=false -var="ENVIRONMENT_TYPE=qa"
+  plan_preprod:
+    runs-on: [self-hosted, linux, x64, azure-mfo-dev]
+    
+    environment: preprod
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZ_SP_USERNAME }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZ_SP_PASSWORD }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZ_SP_SUBSCRIPTION }}
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hashicorp/setup-terraform@v1  
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Check formatting
+        run: terraform fmt -check -recursive
+      - name: Terraform init
+        run: terraform init -input=false -backend-config="container_name=coretfstatepreprod"
+      - name: Terraform validate
+        run: terraform validate
+      - name: Terraform plan
+        id: plan
+        run: terraform plan -input=false -var="ENVIRONMENT_TYPE=preprod" -no-color 2>&1 | tee ${GITHUB_WORKSPACE}/plan_out.txt
+        continue-on-error: true
+      - name: Update Pull Request
+        uses: actions/github-script@v5
+        if: github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const run_url = process.env.GITHUB_SERVER_URL + '/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + process.env.GITHUB_RUN_ID
+            const run_link = '<a href="' + run_url + '">Actions</a>.'
+            const fs = require('fs')
+            const plan_output = fs.readFileSync('plan_out.txt', 'utf8')
+            const plan_details = plan_output.length > 65000 ? plan_output.toString().slice(-65000) : plan_output
+            const truncated_message = plan_output.length > 65000 ? "Output is too long and beginning was omitted. You can read full Plan in " + run_link + "<br /><br />" : ""
+            const output = `#### Main Terraform Plan \`${{ steps.plan.outcome }}\`
+            <details><summary>Show Plan</summary>
+            \`\`\`\n
+            ${plan_details}
+            \`\`\`
+            </details>
+            ${truncated_message}
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+  deploy-preprod:
+    runs-on: [self-hosted, linux, x64, azure-mfo-dev]
+    needs: [plan_preprod]
+    if: ${{ github.ref == 'refs/heads/main' }}
+    environment: preprod
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZ_SP_USERNAME }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZ_SP_PASSWORD }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZ_SP_SUBSCRIPTION }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hashicorp/setup-terraform@v1  
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: Terraform init
+        run: terraform init -input=false -backend-config="container_name=coretfstatepreprod"
+      - name: Terraform apply
+        run: terraform apply -auto-approve -input=false -var="ENVIRONMENT_TYPE=preprod"
+  plan_prod:
+    runs-on: [self-hosted, linux, x64, azure-mfo-dev]
+    
+    environment: prod
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZ_SP_USERNAME }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZ_SP_PASSWORD }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZ_SP_SUBSCRIPTION }}
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hashicorp/setup-terraform@v1  
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Check formatting
+        run: terraform fmt -check -recursive
+      - name: Terraform init
+        run: terraform init -input=false -backend-config="container_name=coretfstateprod"
+      - name: Terraform validate
+        run: terraform validate
+      - name: Terraform plan
+        id: plan
+        run: terraform plan -input=false -var="ENVIRONMENT_TYPE=prod" -no-color 2>&1 | tee ${GITHUB_WORKSPACE}/plan_out.txt
+        continue-on-error: true
+      - name: Update Pull Request
+        uses: actions/github-script@v5
+        if: github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const run_url = process.env.GITHUB_SERVER_URL + '/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + process.env.GITHUB_RUN_ID
+            const run_link = '<a href="' + run_url + '">Actions</a>.'
+            const fs = require('fs')
+            const plan_output = fs.readFileSync('plan_out.txt', 'utf8')
+            const plan_details = plan_output.length > 65000 ? plan_output.toString().slice(-65000) : plan_output
+            const truncated_message = plan_output.length > 65000 ? "Output is too long and beginning was omitted. You can read full Plan in " + run_link + "<br /><br />" : ""
+            const output = `#### Main Terraform Plan \`${{ steps.plan.outcome }}\`
+            <details><summary>Show Plan</summary>
+            \`\`\`\n
+            ${plan_details}
+            \`\`\`
+            </details>
+            ${truncated_message}
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+  deploy-prod:
+    runs-on: [self-hosted, linux, x64, azure-mfo-dev]
+    needs: [plan_prod]
+    if: ${{ github.ref == 'refs/heads/main' }}
+    environment: prod
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZ_SP_USERNAME }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZ_SP_PASSWORD }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZ_SP_SUBSCRIPTION }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hashicorp/setup-terraform@v1  
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: Terraform init
+        run: terraform init -input=false -backend-config="container_name=coretfstateprod"
+      - name: Terraform apply
+        run: terraform apply -auto-approve -input=false -var="ENVIRONMENT_TYPE=prod"
