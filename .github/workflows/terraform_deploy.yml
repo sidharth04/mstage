@@ -36,10 +36,10 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
-      - name: Terraform validate
-        run: terraform validate
       - name: Terraform init
         run: terraform init -input=false
+      - name: Terraform validate
+        run: terraform validate
       - name: Terraform plan
         id: plan
         run: terraform plan -input=false -var="ENVIRONMENT_TYPE=dev" -no-color 2>&1 | tee ${GITHUB_WORKSPACE}/plan_out.txt
