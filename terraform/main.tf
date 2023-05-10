@@ -12,15 +12,15 @@ provider "azurerm" {
     
   }
 }
-  ## "Backend" is used to save the state to Azure Blob in order to avoid developing conflicts. 
-  # backend "azurerm" {
-  #   subscription_id      = ""
-  #   resource_group_name  = ""
-  #   storage_account_name = ""
-  #   container_name       = "" # this is overridden on command line in QA, PREPROD & PROD
-  #   key                  = "terraform.tfstate"
-  #   use_azuread_auth     = true # This flag makes TF use AD auth (RBAC) to access backend storage.
-  # }
+  # "Backend" is used to save the state to Azure Blob in order to avoid developing conflicts. 
+  backend "azurerm" {
+    subscription_id      = "5a0855b9-426d-429e-83a9-ea7c4796e9a4"
+    resource_group_name  = "rgstsidtest"
+    storage_account_name = "mystsidtestqsoct5"
+    container_name       = "tftstate" # this is overridden on command line in QA, PREPROD & PROD
+    key                  = "terraformmultistage.tfstate"
+    use_azuread_auth     = true # This flag makes TF use AD auth (RBAC) to access backend storage.
+  }
 
 
 module "resource_groups" {
