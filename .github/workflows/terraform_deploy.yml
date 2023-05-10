@@ -88,7 +88,7 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
       - name: Terraform init
-        run: terraform init -input=false -backend-config="container_name=coretfstatedev"
+        run: terraform init -input=false -backend-config="container_name=tftstate"
       - name: Terraform apply
         run: terraform apply -auto-approve -input=false -var="ENVIRONMENT_TYPE=dev"
   # plan_qa:
